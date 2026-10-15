@@ -15,6 +15,19 @@ public class CommandResponse {
         this.ttl = ttl;
     }
 
+    public CommandResponse() {
+    }
+
+    @Override
+    public String toString() {
+        return "CommandResponse{" +
+                "statusCode=" + statusCode +
+                ", key='" + key + '\'' +
+                ", value='" + value + '\'' +
+                ", ttl=" + ttl +
+                '}';
+    }
+
     public OperationResponseCode getStatusCode() {
         return statusCode;
     }
@@ -45,6 +58,13 @@ public class CommandResponse {
 
     public void setTtl(long ttl) {
         this.ttl = ttl;
+    }
+
+    public void clear(){
+        this.key = "";
+        this.value = "";
+        this.ttl = 0l;
+        this.statusCode = null;
     }
 
     public CommandResponse(OperationResponseCode statusCode) {

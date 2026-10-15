@@ -32,6 +32,13 @@ public class Command {
         this.type = type;
     }
 
+    public Command(Operation operation, String key) {
+        this.operation = operation;
+        this.key = key;
+    }
+
+    public Command() {}
+
     public Operation getOperation() {
         return operation;
     }
@@ -70,6 +77,17 @@ public class Command {
 
     public void setType(DataType type) {
         this.type = type;
+    }
+
+    @Override
+    public String toString() {
+        return "Command{" +
+                "operation=" + operation +
+                ", key='" + key + '\'' +
+                ", value='" + value + '\'' +
+                ", ttl=" + ttl +
+                ", type=" + type +
+                '}';
     }
 }
 
