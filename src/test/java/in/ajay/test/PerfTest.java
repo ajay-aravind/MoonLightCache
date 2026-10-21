@@ -94,7 +94,7 @@ public class PerfTest {
         MoonLightCache cache = new MoonLightCache();
 
         for(int i=0;i<keyList.length;i++){
-            lockList.add(cache.getMutexKey(new Command(Operation.GET, keyList[i])));
+            lockList.add(cache.getMutexKey(keyList[i]));
         }
 
         assertEquals(lockList.size(), 7);
@@ -191,18 +191,13 @@ public class PerfTest {
     }
 
     @Test
-    void TestConcurrentSetAndDeleteOnSingleKey() throws InterruptedException{
-
-    }
-
-    @Test
     void TestConcurrentSetAndGetOnSingleKey() throws InterruptedException{
             MoonLightCache cache = new MoonLightCache();
 
-            int writerCount = 4;
-            int readerCount = 4;
-            int writesPerThread = 5_000;
-            int readsPerThread = 5_000;
+            int writerCount = 32;
+            int readerCount = 32;
+            int writesPerThread = 5_00;
+            int readsPerThread = 5_00;
 
             String key = "test";
 
@@ -210,13 +205,13 @@ public class PerfTest {
             AtomicReference<Throwable> failure = new AtomicReference<>();
             Map<String, Long> validValues = new ConcurrentHashMap<>();
 
-            long baseTtl = Instant.now().plusSeconds(3600).toEpochMilli();
+            long baseTtl = Instant.now().plusMillis(2000).toEpochMilli();
 
             // Prepare all possible valid value/TTL pairs.
             for (int writer = 0; writer < writerCount; writer++) {
                 for (int i = 0; i < writesPerThread; i++) {
                     String value = "writer-" + writer + "-" + i;
-                    long ttl = baseTtl + writer * writesPerThread + i;
+                    long ttl = baseTtl;
                     validValues.put(value, ttl);
                 }
             }
@@ -243,8 +238,7 @@ public class PerfTest {
 
                         for (int i = 0; i < writesPerThread; i++) {
                             String value = "writer-" + writerId + "-" + i;
-                            long ttl = baseTtl
-                                    + writerId * writesPerThread + i;
+                            long ttl = baseTtl;
 
                             Command command = new Command(
                                     Operation.SET, key, value,

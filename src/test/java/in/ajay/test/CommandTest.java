@@ -1,16 +1,31 @@
 package in.ajay.test;
 
 import in.ajay.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import java.time.Instant;
+import java.util.Iterator;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class CommandTest {
 
+    private MoonLightCache cache;
+
+    @BeforeEach
+    void setUp() {
+        cache = new MoonLightCache();
+    }
+
+    @AfterEach
+    void tearDown() {
+        cache.stop();
+    }
+
     @Test
     void TestCreateItem() {
         Command setCommand = new Command(Operation.SET, "test", "testValue", Instant.now().plusSeconds(10).toEpochMilli(), DataType.stringType);
-        MoonLightCache cache = new MoonLightCache();
         CommandResponse response = cache.ProcessCommand(setCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
         assertEquals(response.getKey(), setCommand.getKey());
@@ -55,7 +70,6 @@ public class CommandTest {
     @Test
     void TestGetNonExistantItem(){
         Command getCommand = new Command(Operation.GET, "test");
-        MoonLightCache cache = new MoonLightCache();
         var response = cache.ProcessCommand(getCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.NOTEXISTS);
     }
@@ -63,7 +77,6 @@ public class CommandTest {
     @Test
     void TestDeleteItem(){
         Command setCommand = new Command(Operation.SET, "test", "testValue", Instant.now().plusSeconds(10).toEpochMilli(), DataType.stringType);
-        MoonLightCache cache = new MoonLightCache();
         CommandResponse response = cache.ProcessCommand(setCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
 
@@ -79,7 +92,6 @@ public class CommandTest {
     @Test
     void TestDeleteOnNonExistantItem(){
         Command deleteCommand = new Command(Operation.DELE, "test");
-        MoonLightCache cache = new MoonLightCache();
         var response = cache.ProcessCommand(deleteCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.DELETED);
     }
@@ -87,7 +99,6 @@ public class CommandTest {
     @Test
     void TestExistsItem(){
         Command setCommand = new Command(Operation.SET, "test", "testValue", Instant.now().plusSeconds(10).toEpochMilli(), DataType.stringType);
-        MoonLightCache cache = new MoonLightCache();
         CommandResponse response = cache.ProcessCommand(setCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
 
@@ -99,7 +110,6 @@ public class CommandTest {
     @Test
     void TestExistsItemNegative(){
         Command existsCommand = new Command(Operation.EXISTS, "nonExisitantKey");
-        MoonLightCache cache = new MoonLightCache();
         CommandResponse response = cache.ProcessCommand(existsCommand);
         response = cache.ProcessCommand(existsCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.NOTEXISTS);
@@ -108,7 +118,6 @@ public class CommandTest {
     @Test
     void TestExpiredKeysAreDeleted(){
         Command setCommand = new Command(Operation.SET, "test", "testValue", Instant.now().plusSeconds(4).toEpochMilli(), DataType.stringType);
-        MoonLightCache cache = new MoonLightCache();
         CommandResponse response = cache.ProcessCommand(setCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
 
@@ -127,9 +136,50 @@ public class CommandTest {
         assertEquals(response.getStatusCode(), OperationResponseCode.NOTEXISTS);
     }
 
+    /*
+    Make background thread deletes the stale entries.
+    Directly testing the key existence in data layer instead of issuing get command
+     */
+    @Test
+    void TestBackgroundThreadDeletesStaleEntries() throws InterruptedException {
+        Command setCommand = new Command(Operation.SET, "test", "testValue", Instant.now().plusSeconds(2).toEpochMilli(), DataType.stringType);
+        CommandResponse response = cache.ProcessCommand(setCommand);
+        assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
+
+        Thread.sleep(1000*3);
+        var iterator = cache.getKeysListInCache();
+        Boolean keyExists = false;
+        for (Iterator<String> it = iterator; it.hasNext(); ) {
+            String key = it.next();
+            if(key.equals("test")){
+                keyExists = true;
+            }
+        }
+        assertEquals(false, keyExists);
+    }
+
+    @Test
+    void TestBackgroundThreadDoNotDeletesActiveEntries() throws InterruptedException {
+        Command setCommand = new Command(Operation.SET, "test1", "testValue", Instant.now().plusSeconds(2).toEpochMilli(), DataType.stringType);
+        CommandResponse response = cache.ProcessCommand(setCommand);
+        assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
+
+        setCommand = new Command(Operation.SET, "test2", "testValue", Instant.now().plusSeconds(2).toEpochMilli(), DataType.stringType);
+        response = cache.ProcessCommand(setCommand);
+        assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
+
+        var iterator = cache.getKeysListInCache();
+        int count = 0;
+
+        for (Iterator<String> it = iterator; it.hasNext(); ) {
+            String key = it.next();
+            count++;
+        }
+        assertEquals(2, count);
+    }
+
 
     private void TestCreateItems(Command setCommand){
-        MoonLightCache cache = new MoonLightCache();
         CommandResponse response = cache.ProcessCommand(setCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
         assertEquals(response.getKey(), setCommand.getKey());

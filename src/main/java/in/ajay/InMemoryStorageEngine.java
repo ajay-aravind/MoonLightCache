@@ -2,7 +2,6 @@ package in.ajay;
 
 import java.time.Instant;
 import java.util.Iterator;
-import java.util.ListIterator;
 import java.util.concurrent.ConcurrentHashMap;
 
 //Doesn't do any validations i.e null checks on data provided, validations has to be done on upper layers
@@ -35,14 +34,14 @@ public class InMemoryStorageEngine implements  StorageEngine{
     public synchronized CacheItem getItem(String key) {
         CacheItem item =  items.get(key);
         if(item != null && item.getTtl() < Instant.now().toEpochMilli()){
-            this.DeleteIem(key);
+            items.remove(key, item);
             return null;
         }
         return item;
     }
 
     @Override
-    public boolean DeleteIem(String key) {
+    public boolean DeleteItem(String key) {
          items.remove(key);
          return true;
     }
@@ -55,5 +54,13 @@ public class InMemoryStorageEngine implements  StorageEngine{
     @Override
     public Iterator<String> EnumerateItems() {
         return this.items.keySet().iterator();
+    }
+
+    @Override
+    public void DeleteItemIfStale(String key) {
+        CacheItem item = items.get(key);
+        if(item!=null && item.getTtl() <= Instant.now().toEpochMilli()){
+            items.remove(key, item);
+        }
     }
 }

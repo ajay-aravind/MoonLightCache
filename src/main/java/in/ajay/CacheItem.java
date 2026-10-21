@@ -1,6 +1,7 @@
 package in.ajay;
 
 import java.util.Arrays;
+import java.util.Objects;
 
 public class CacheItem {
     private String key;
@@ -17,6 +18,17 @@ public class CacheItem {
         this.value = value;
         this.ttl = ttl;
         this.type = type;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof CacheItem cacheItem)) return false;
+        return ttl == cacheItem.ttl && Objects.equals(key, cacheItem.key) && Objects.deepEquals(value, cacheItem.value) && type == cacheItem.type;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(key, Arrays.hashCode(value), ttl, type);
     }
 
     public String getKey() {

@@ -5,16 +5,31 @@ import in.ajay.logging.SysOutLogger;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.Iterator;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class MoonLightCache {
 
-    private StorageEngine storageEngine;
+    private final StorageEngine storageEngine;
     private ILogger logger;
     private final int LOCK_COUNT = 8000;
     private final Object[] locks = new Object[LOCK_COUNT];
+
+    private final int INTIAL_DELAY = AppConfig.getInt(
+            "maintenance.initial.delay.seconds");
+
+    private final int INTERVAL = AppConfig.getInt(
+            "maintenance.interval.seconds");
+
+    private final ScheduledExecutorService scheduler =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "cache-maintenance");
+                t.setDaemon(true);
+                return t;
+            });
 
     // Testing variables
 
@@ -33,6 +48,8 @@ public class MoonLightCache {
         for(int i=0;i<LOCK_COUNT;i++){
             locks[i] = new Object();
         }
+        // start background thread to remove stale entries
+        this.startMaintananceThread();
     }
 
     public CommandResponse ProcessCommand(Command command) {
@@ -40,9 +57,9 @@ public class MoonLightCache {
         //todo: validate command
         CommandResponse response= new CommandResponse();
 
-        synchronized (this.getMutexKey(command)) {
-            logger.LogDebug("Operation started");
-            logger.LogDebug(command.toString());
+        synchronized (this.getMutexKey(command.getKey())) {
+//            logger.LogDebug("Operation started");
+//            logger.LogDebug(command.toString());
 
             int active = activeThreads.incrementAndGet();
             maxActiveThreads.accumulateAndGet(active, Math::max);
@@ -69,7 +86,7 @@ public class MoonLightCache {
                     response.setValue(this.getValueFromByteArray(item.getValue(), item.getType()));
                 }
             } else if (command.getOperation() == Operation.DELE) {
-                boolean opStatus = storageEngine.DeleteIem(command.getKey());
+                boolean opStatus = storageEngine.DeleteItem(command.getKey());
                 OperationResponseCode code = opStatus ? OperationResponseCode.DELETED : OperationResponseCode.FAILED;
                 response.setStatusCode(code);
             } else if (command.getOperation() == Operation.EXISTS) {
@@ -80,19 +97,44 @@ public class MoonLightCache {
                 OperationResponseCode code = OperationResponseCode.INVALID_OPERATION;
                 response.setStatusCode(code);
             }
-            logger.LogDebug("Operation ended");
+//            logger.LogDebug("Operation ended");
             activeThreads.decrementAndGet();
             return response;
         }
     }
 
-    public synchronized Object getMutexKey(Command command){
-        int lockIndex = Math.floorMod(command.getKey().hashCode(), LOCK_COUNT);
+    public synchronized Object getMutexKey(String key){
+        int lockIndex = Math.floorMod(key.hashCode(), LOCK_COUNT);
         return this.locks[lockIndex];
     }
 
-    public AtomicInteger getMaxActiveThreads(){
-        return this.maxActiveThreads;
+    public void startMaintananceThread() {
+        scheduler.scheduleWithFixedDelay(() -> {
+            try {
+                this.RemoveStaleEntries(this.storageEngine.EnumerateItems());
+            } catch (Exception e) {
+                e.printStackTrace();
+                this.logger.LogError(e.getMessage());
+            }
+        }, INTIAL_DELAY, INTERVAL, TimeUnit.SECONDS);
+        this.logger.LogInfo("Maintenance Thread scheduled");
+    }
+
+    public void stop(){
+        this.logger.LogInfo("Maintenance scheduler stopped");
+        this.scheduler.shutdown();
+    }
+
+    public void RemoveStaleEntries(Iterator<String> mapIterator){
+        this.logger.LogInfo("Started to remove stale cache entries");
+        for (Iterator<String> it = mapIterator; it.hasNext(); ) {
+            String key = it.next();
+            synchronized (this.getMutexKey(key)) {
+                this.logger.LogTrace("Removing stale key: " + key+" from cache");
+                this.storageEngine.DeleteItemIfStale(key);
+            }
+        }
+        this.logger.LogInfo("Done removing stale cache entries");
     }
 
     private byte[] getByteArrayFromValue(String value, DataType type) {
@@ -151,5 +193,16 @@ public class MoonLightCache {
             case stringType ->
                     new String(valueArray, StandardCharsets.UTF_8);
         };
+    }
+
+    /*
+    Debug methods
+     */
+    public AtomicInteger getMaxActiveThreads(){
+        return this.maxActiveThreads;
+    }
+
+    public Iterator<String> getKeysListInCache(){
+        return this.storageEngine.EnumerateItems();
     }
 }

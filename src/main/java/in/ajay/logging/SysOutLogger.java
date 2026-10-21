@@ -1,22 +1,33 @@
 package in.ajay.logging;
 
+import in.ajay.AppConfig;
+
 public class SysOutLogger implements ILogger{
 
     //todo log different levels of messages based on env variables
 
+    private final String LOG_LEVEL = AppConfig.get(
+            "log.level");
+
     @Override
     public void LogInfo(String message) {
-        IO.println(this.formatMessage(message));
+        if(LOG_LEVEL.equals("info")||LOG_LEVEL.equals("debug")||LOG_LEVEL.equals("trace")) {
+            IO.println(this.formatMessage(message));
+        }
     }
 
     @Override
     public void LogDebug(String message) {
-        IO.println(this.formatMessage(message));
+        if(LOG_LEVEL.equals("debug")||LOG_LEVEL.equals("trace")) {
+            IO.println(this.formatMessage(message));
+        }
     }
 
     @Override
     public void LogTrace(String message) {
-        IO.println(message);
+        if(LOG_LEVEL.equals("trace")) {
+            IO.println(message);
+        }
     }
 
     @Override
