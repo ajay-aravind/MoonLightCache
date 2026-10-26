@@ -1,4 +1,4 @@
-package in.ajay;
+package in.ajay.core;
 
 import java.util.Iterator;
 

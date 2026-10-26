@@ -1,4 +1,4 @@
-package in.ajay;
+package in.ajay.core;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -70,6 +70,10 @@ public final class AppConfig {
 
     public static int getInt(String key) {
         return Integer.parseInt(get(key));
+    }
+
+    public static void list(){
+        PROPERTIES.list(System.out);
     }
 
     public static boolean getBoolean(String key) {

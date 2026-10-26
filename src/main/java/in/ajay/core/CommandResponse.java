@@ -1,18 +1,22 @@
-package in.ajay;
+package in.ajay.core;
+
+import java.util.Arrays;
 
 public class CommandResponse {
 
     // operation response status
     private OperationResponseCode statusCode;
     private String key;
-    private String value;
+    private byte[] value;
     private long ttl;
+    private DataType type;
 
-    public CommandResponse(OperationResponseCode statusCode, String key, String value, long ttl) {
+    public CommandResponse(OperationResponseCode statusCode, String key, byte[] value, DataType type) {
         this.statusCode = statusCode;
         this.key = key;
         this.value = value;
         this.ttl = ttl;
+        this.type = type;
     }
 
     public CommandResponse() {
@@ -23,8 +27,9 @@ public class CommandResponse {
         return "CommandResponse{" +
                 "statusCode=" + statusCode +
                 ", key='" + key + '\'' +
-                ", value='" + value + '\'' +
+                ", value=" + Arrays.toString(value) +
                 ", ttl=" + ttl +
+                ", type=" + type +
                 '}';
     }
 
@@ -44,11 +49,11 @@ public class CommandResponse {
         this.key = key;
     }
 
-    public String getValue() {
+    public byte[] getValue() {
         return value;
     }
 
-    public void setValue(String value) {
+    public void setValue(byte[] value) {
         this.value = value;
     }
 
@@ -60,15 +65,17 @@ public class CommandResponse {
         this.ttl = ttl;
     }
 
-    public void clear(){
-        this.key = "";
-        this.value = "";
-        this.ttl = 0l;
-        this.statusCode = null;
+    public DataType getType() {
+        return type;
     }
 
-    public CommandResponse(OperationResponseCode statusCode) {
+    public void setType(DataType type) {
+        this.type = type;
+    }
+
+    public CommandResponse(OperationResponseCode statusCode, String key) {
         this.statusCode = statusCode;
+        this.key = key;
     }
 }
 

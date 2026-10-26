@@ -1,9 +1,10 @@
-package in.ajay;
+package in.ajay.core;
 
 import in.ajay.logging.ILogger;
 import in.ajay.logging.SysOutLogger;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.concurrent.Executors;
@@ -65,34 +66,39 @@ public class MoonLightCache {
             maxActiveThreads.accumulateAndGet(active, Math::max);
 
             if (command.getOperation() == Operation.SET) {
-                CacheItem item = new CacheItem(command.getKey(), this.getByteArrayFromValue(command.getValue(), command.getType()), command.getTtl(), command.getType());
+                CacheItem item = new CacheItem(command.getKey(), command.getValue(), command.getTtl(), command.getType());
                 boolean opStatus = storageEngine.putItem(item);
                 OperationResponseCode code = opStatus ? OperationResponseCode.CREATED : OperationResponseCode.FAILED;
                 response.setStatusCode(code);
                 response.setKey(item.getKey());
                 response.setTtl(item.getTtl());
-                response.setValue(this.getValueFromByteArray(item.getValue(), item.getType()));
+                response.setValue(item.getValue());
+                response.setType(item.getType());
             } else if (command.getOperation() == Operation.GET) {
                 CacheItem item = storageEngine.getItem(command.getKey());
                 OperationResponseCode code;
                 if (item == null) {
                     code = OperationResponseCode.NOTEXISTS;
                     response.setStatusCode(code);
+                    response.setKey(command.getKey());
                 } else {
                     code = OperationResponseCode.FOUND;
                     response.setStatusCode(code);
                     response.setKey(item.getKey());
                     response.setTtl(item.getTtl());
-                    response.setValue(this.getValueFromByteArray(item.getValue(), item.getType()));
+                    response.setValue(item.getValue());
+                    response.setType(item.getType());
                 }
-            } else if (command.getOperation() == Operation.DELE) {
+            } else if (command.getOperation() == Operation.DELETE) {
                 boolean opStatus = storageEngine.DeleteItem(command.getKey());
                 OperationResponseCode code = opStatus ? OperationResponseCode.DELETED : OperationResponseCode.FAILED;
                 response.setStatusCode(code);
+                response.setKey(command.getKey());
             } else if (command.getOperation() == Operation.EXISTS) {
                 boolean opStatus = storageEngine.ExistsItem(command.getKey());
                 OperationResponseCode code = opStatus ? OperationResponseCode.EXISTS : OperationResponseCode.NOTEXISTS;
                 response.setStatusCode(code);
+                response.setKey(command.getKey());
             } else {
                 OperationResponseCode code = OperationResponseCode.INVALID_OPERATION;
                 response.setStatusCode(code);
@@ -126,7 +132,7 @@ public class MoonLightCache {
     }
 
     public void RemoveStaleEntries(Iterator<String> mapIterator){
-        this.logger.LogInfo("Started to remove stale cache entries");
+        this.logger.LogTrace("Started to remove stale cache entries");
         for (Iterator<String> it = mapIterator; it.hasNext(); ) {
             String key = it.next();
             synchronized (this.getMutexKey(key)) {
@@ -134,65 +140,7 @@ public class MoonLightCache {
                 this.storageEngine.DeleteItemIfStale(key);
             }
         }
-        this.logger.LogInfo("Done removing stale cache entries");
-    }
-
-    private byte[] getByteArrayFromValue(String value, DataType type) {
-        byte[] valueArray;
-
-        if (type == DataType.boolType) {
-            valueArray = ByteBuffer
-                    .allocate(1)
-                    .put((byte) (Boolean.parseBoolean(value) ? 1 : 0))
-                    .array();
-
-        } else if (type == DataType.characterType) {
-            valueArray = ByteBuffer
-                    .allocate(2)
-                    .putChar(value.charAt(0))
-                    .array();
-
-        } else if (type == DataType.integerType) {
-            valueArray = ByteBuffer
-                    .allocate(4)
-                    .putInt(Integer.parseInt(value))
-                    .array();
-
-        } else if (type == DataType.longType) {
-            valueArray = ByteBuffer
-                    .allocate(8)
-                    .putLong(Long.parseLong(value))
-                    .array();
-
-        } else if (type == DataType.stringType) {
-            valueArray = value.getBytes(StandardCharsets.UTF_8);
-
-        } else {
-            throw new IllegalArgumentException("Unsupported data type: " + type);
-        }
-
-        return valueArray;
-    }
-
-    private String getValueFromByteArray(byte[] valueArray, DataType type) {
-
-        return switch (type) {
-
-            case boolType ->
-                    String.valueOf(valueArray[0] != 0);
-
-            case characterType ->
-                    String.valueOf(ByteBuffer.wrap(valueArray).getChar());
-
-            case integerType ->
-                    String.valueOf(ByteBuffer.wrap(valueArray).getInt());
-
-            case longType ->
-                    String.valueOf(ByteBuffer.wrap(valueArray).getLong());
-
-            case stringType ->
-                    new String(valueArray, StandardCharsets.UTF_8);
-        };
+        this.logger.LogTrace("Done removing stale cache entries");
     }
 
     /*

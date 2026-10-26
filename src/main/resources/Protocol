@@ -1,0 +1,71 @@
+Mechanism:
+    Request & response like http
+    no pipelining is supported
+    authentication is supported, need to learn
+    tls is supported, need to learn, probably nothing much needed, should already have a well known library
+    must be connection oriented since auth is planned i.e server must be aware of state attached to the connection
+    timeout: needed?
+
+Syntax structure of request:
+    design questions:
+        what should be the symbols for {start},{end}, {separator}?
+            Instead of relying on start and end, i've decided to go with a 4-byte payload length and then message payload. This will reduce need for separate, start and end
+            markers.
+        Should we include length of each param before?
+            pros: once a size int is read, we can know exactly how many bytes to read from connection to get the value. Now we have to check for each n series of characters
+                read to see if it is a separator.
+            cons: message length is increased.
+        Should i do text based protocol like resp used by redis or custom binary protocol.
+        Binary protocol seems to be interesting let's do that.
+    {Start}{Command}{seperator}{Key}{seperator}{dataType}{Seperator}{Value}{seperator}{ttl}{seperator}{end}
+
+    {Start}: required
+    {Command}: required. Supported values {SET, GET, EXISTS, DELE}
+    {seperator}: required
+    {Key}: required
+    {seperator}: required
+    {Value}: optional
+    {seperator}: optional
+    {ttl}: optional, should be non negative epoch value
+    {seperator}: optional
+    {dataType}: optional, Supported types { stringType, integerType, longType, boolType, characterType}
+    {Seperator}: optional
+    {end}: required
+
+    Custom binary format:
+    {4bytes} : length of the entire message, required
+    {1byte}: command, 255 commands are a lot, so one byte would do, required
+    {2bytes}: length of key, 65536 characters are enough for key, required
+    {n bytes}: n bytes as mentioned by previous value, required
+    {1byte}: data type of value if value is present, optional for get, exists, delete
+    {4bytes}: length of the data, 2^32-1 is big enough for value
+    {n bytes}: n bytes as mentioned by previous value
+    {8 bytes}: ttl required always, if not present error out
+
+    Length of message comes up to: 1 + 2 + 2 + 4 + 8 + x + y = 17 + x + y; max if x is 2^16-1 and max of y is 2^32 -1, so clearly i need min of 2^64-1 number. That is
+    i need 8 bytes to indicate the length of the message.
+    but 2^32-1, is 4GB of payload that is too much, i think 1MB value and 65kkb key i.e 2MB for the command is max enough. so 2*2^20 ~ 21 bits are needed for specifying the
+    payload length.
+
+Syntax structure of response:
+    {Start}{OperationResponseCode}{separator}{Key}{seperator}{dataType}{Seperator}{Value}{seperator}{end}
+
+    {Start}: required
+    {OperationResponseCode}: required. Valid values {EXISTS, NOTEXISTS, CREATED,FOUND,FAILED,DELETED,INVALID_OPERATION}
+    {seperator}: required
+    {Key}: required
+    {seperator}: required
+    {dataType}: optional
+    {Seperator}: optional
+    {Value}: optional
+    {seperator}: optional
+    {end}: optional
+
+    Custom binary format:
+    {8bytes} : length of the entire message
+    {1byte}: operation response code
+    {2bytes}: length of key, 65536 characters are enough for key
+    {n bytes}: n bytes as mentioned by previous value
+    {2byte}: data type of value if value is present
+    {4bytes}: length of the data, 2^32-1 is big enough for value
+    {n bytes}: n bytes as mentioned by previous value

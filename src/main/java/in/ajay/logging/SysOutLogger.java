@@ -1,6 +1,6 @@
 package in.ajay.logging;
 
-import in.ajay.AppConfig;
+import in.ajay.core.AppConfig;
 
 public class SysOutLogger implements ILogger{
 

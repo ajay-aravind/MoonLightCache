@@ -1,0 +1,290 @@
+package in.ajay.test;
+
+import in.ajay.core.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+public class ConcurrencyTest {
+
+    private MoonLightCache cache;
+
+    @BeforeEach
+    void setUp() {
+        cache = new MoonLightCache();
+    }
+
+    @AfterEach
+    void tearDown() {
+        cache.stop();
+    }
+
+    /*
+    starts hundred threads setting the same value parallelly, and measure the max active current threads inside the process command synchronized section.
+    Max expected value is 1, since we are issuing commands for the same key
+     */
+    @Test
+    void TestOneThreadAtAtimeForOneKey() throws InterruptedException {
+
+        int threadCount = 100;
+        Thread[] threads = new Thread[threadCount];
+
+        for (int i = 0; i < threadCount; i++) {
+            final int value = i;
+
+            threads[i] = new Thread(() -> {
+                Command setCommand = new Command();
+                setCommand.setOperation(Operation.SET);
+                setCommand.setValue("testValue".getBytes(StandardCharsets.UTF_8));
+                setCommand.setTtl(Instant.now().plusSeconds(10).toEpochMilli());
+                setCommand.setType(DataType.stringType);
+                setCommand.setKey("test");
+                cache.ProcessCommand(setCommand);
+            });
+            threads[i].start();
+        }
+
+        for (Thread thread : threads) {
+            thread.join();
+        }
+
+        Command existsCommand = new Command(Operation.GET, "test");
+        var response = cache.ProcessCommand(existsCommand);
+        assertEquals(response.getStatusCode(), OperationResponseCode.FOUND);
+        assertEquals(cache.getMaxActiveThreads().get(), 1);
+
+        assertArrayEquals(response.getValue(), "testValue".getBytes(StandardCharsets.UTF_8));
+        System.out.println("Final value: " + response.getValue());
+    }
+
+    /*
+    To make sure 2 threads will be able to go into the critical section
+     */
+    @Test
+    void TestDifferentKeysProduceDifferentLockObjects(){
+        String[] keyList = {"apple", "orange", "tomato", "red", "white", "yellow", "ginger", "apple"};
+        HashSet<Object> lockList = new HashSet<>();
+
+        for(int i=0;i<keyList.length;i++){
+            lockList.add(cache.getMutexKey(keyList[i]));
+        }
+
+        assertEquals(lockList.size(), 7);
+    }
+
+    /*
+    To make sure more than 1 thread will enter critical section when keys are different
+     */
+
+    @Test
+    void TestMoreThanOneThreadEntersCriticalSection() throws InterruptedException {
+        Hashtable<String, String> keyValueMap = new Hashtable<String, String>();
+        keyValueMap.put("apple", "20");
+        keyValueMap.put("orange", "25");
+        keyValueMap.put("tomato", "60");
+        keyValueMap.put("red", "15");
+        keyValueMap.put("white", "16");
+        keyValueMap.put("yellow", "17");
+        keyValueMap.put("ginger", "18");
+
+        Thread[] threadsList = new Thread[7];
+        int count = 0;
+
+        for(var key : keyValueMap.keySet()){
+            Thread thread = new Thread(()->{
+                Command command = new Command(Operation.SET, key, keyValueMap.get(key).getBytes(StandardCharsets.UTF_8), Instant.now().toEpochMilli(), DataType.stringType);
+                cache.ProcessCommand(command);
+            });
+
+            thread.start();
+            threadsList[count++] = thread;
+        }
+
+        for(int i=0;i<count;i++){
+            threadsList[i].join();
+        }
+
+        assertTrue(cache.getMaxActiveThreads().get()>1, "Expected minimum 2 threads to enter critical section");
+
+    }
+
+    @Test
+    void TestConcurrentSetsOnASingleKey() throws InterruptedException {
+
+        Thread[] threadList = new Thread[1000];
+        Hashtable<String, Long> valueTtlMap = new Hashtable<String, Long>();
+        List<CommandResponse> responseList = Collections.synchronizedList(new ArrayList<CommandResponse>());
+        CountDownLatch startGate = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+
+
+        for(int i=0;i<1000;i++){
+            valueTtlMap.put("testValue"+i, Instant.now().plusSeconds(100).toEpochMilli());
+            String value = "testValue"+i;
+
+            Thread thread = new Thread(()->{
+                try {
+                    startGate.await(); // Thread execution hangs here until the startGate value reaches to zero
+                    Command setCommand = new Command(Operation.SET, "test", value.getBytes(StandardCharsets.UTF_8), valueTtlMap.get(value), DataType.stringType);
+                    var response = cache.ProcessCommand(setCommand);
+                    responseList.add(response);
+                }catch(Exception e){
+                    failure.compareAndSet(null, e);
+                }
+            });
+            threadList[i] = thread;
+            thread.start();
+        }
+
+        IO.println("Threads wait till here to start..");
+        // all threads start from startGatewa.await();
+        startGate.countDown();
+        for(var thread: threadList){
+            thread.join();
+        }
+
+        assertEquals(null, failure.get());
+
+        Command getCommand = new Command(Operation.GET, "test");
+        CommandResponse response = cache.ProcessCommand(getCommand);
+
+        String value = new String(response.getValue(), StandardCharsets.UTF_8);
+        assertTrue(valueTtlMap.containsKey(value));
+        assertEquals(valueTtlMap.get(value), response.getTtl());
+        IO.println(response.toString());
+
+        assertEquals(responseList.size(), 1000);
+        for(CommandResponse cResponse: responseList){
+            assertEquals(OperationResponseCode.CREATED, cResponse.getStatusCode());
+        }
+    }
+
+    @Test
+    void TestConcurrentSetAndGetOnSingleKey() throws InterruptedException{
+
+        int writerCount = 32;
+        int readerCount = 32;
+        int writesPerThread = 5_00;
+        int readsPerThread = 5_00;
+
+        String key = "test";
+
+        CountDownLatch startGate = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Map<String, Long> validValues = new ConcurrentHashMap<>();
+
+        long baseTtl = Instant.now().plusMillis(2000).toEpochMilli();
+
+        // Prepare all possible valid value/TTL pairs.
+        for (int writer = 0; writer < writerCount; writer++) {
+            for (int i = 0; i < writesPerThread; i++) {
+                String value = "writer-" + writer + "-" + i;
+                long ttl = baseTtl;
+                validValues.put(value, ttl);
+            }
+        }
+
+        // Initialize the key before readers start.
+        String initialValue = "initial";
+        long initialTtl = baseTtl - 1;
+        validValues.put(initialValue, initialTtl);
+
+        cache.ProcessCommand(new Command(
+                Operation.SET, key, initialValue.getBytes(StandardCharsets.UTF_8),
+                initialTtl, DataType.stringType
+        ));
+
+        Thread[] threads = new Thread[writerCount + readerCount];
+
+        // Writer threads.
+        for (int w = 0; w < writerCount; w++) {
+            final int writerId = w;
+
+            threads[w] = new Thread(() -> {
+                try {
+                    startGate.await();
+
+                    for (int i = 0; i < writesPerThread; i++) {
+                        String value = "writer-" + writerId + "-" + i;
+                        long ttl = baseTtl;
+
+                        Command command = new Command(
+                                Operation.SET, key, value.getBytes(StandardCharsets.UTF_8),
+                                ttl, DataType.stringType
+                        );
+
+                        CommandResponse response =
+                                cache.ProcessCommand(command);
+
+                        if (response.getStatusCode()
+                                != OperationResponseCode.CREATED) {
+                            throw new AssertionError("SET failed: " + value);
+                        }
+                    }
+                } catch (Throwable t) {
+                    failure.compareAndSet(null, t);
+                }
+            });
+        }
+
+        // Reader threads.
+        for (int r = 0; r < readerCount; r++) {
+            threads[writerCount + r] = new Thread(() -> {
+                try {
+                    startGate.await();
+
+                    for (int i = 0; i < readsPerThread; i++) {
+                        CommandResponse response = cache.ProcessCommand(
+                                new Command(Operation.GET, key)
+                        );
+
+                        if (response.getStatusCode()
+                                != OperationResponseCode.FOUND) {
+                            throw new AssertionError("GET did not find key");
+                        }
+
+                        String value = new String(response.getValue(), StandardCharsets.UTF_8);
+                        assertTrue(validValues.containsKey(value));
+                        Long expectedTtl = validValues.get(value);
+
+                        if (expectedTtl == null) {
+                            throw new AssertionError(
+                                    "Unexpected value: " + value);
+                        }
+
+                        if (expectedTtl.longValue() != response.getTtl()) {
+                            throw new AssertionError(
+                                    "Value/TTL mismatch for " + value
+                            );
+                        }
+                    }
+                } catch (Throwable t) {
+                    failure.compareAndSet(null, t);
+                }
+            });
+        }
+
+        // Start all threads.
+        for (Thread thread : threads) {
+            thread.start();
+        }
+
+        startGate.countDown();
+
+        // Wait for all threads to finish.
+        for (Thread thread : threads) {
+            thread.join();
+        }
+
+        assertNull(failure.get(), "Concurrent GET/SET test failed");
+    }
+}

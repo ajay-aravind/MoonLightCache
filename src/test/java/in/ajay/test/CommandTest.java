@@ -1,12 +1,15 @@
 package in.ajay.test;
 
-import in.ajay.*;
+import in.ajay.core.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Iterator;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class CommandTest {
@@ -25,44 +28,45 @@ public class CommandTest {
 
     @Test
     void TestCreateItem() {
-        Command setCommand = new Command(Operation.SET, "test", "testValue", Instant.now().plusSeconds(10).toEpochMilli(), DataType.stringType);
+        Command setCommand = new Command(Operation.SET, "test", "testValue".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(10).toEpochMilli(), DataType.stringType);
         CommandResponse response = cache.ProcessCommand(setCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
         assertEquals(response.getKey(), setCommand.getKey());
-        assertEquals(response.getValue(), setCommand.getValue());
+        assertArrayEquals(response.getValue(), setCommand.getValue());
+        assertEquals(response.getType(), setCommand.getType());
         assertEquals(response.getTtl(), setCommand.getTtl());
     }
 
     @Test
     void TestCreateIntItem(){
-        Command setCommand = new Command(Operation.SET, "test", "120", Instant.now().plusSeconds(10).toEpochMilli(), DataType.integerType);
+        Command setCommand = new Command(Operation.SET, "test", "120".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(10).toEpochMilli(), DataType.integerType);
         this.TestCreateItems(setCommand);
 
-        setCommand = new Command(Operation.SET, "test", "-1220", Instant.now().plusSeconds(10).toEpochMilli(), DataType.integerType);
+        setCommand = new Command(Operation.SET, "test", "-1220".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(10).toEpochMilli(), DataType.integerType);
         this.TestCreateItems(setCommand);
     }
 
     @Test
     void TestCreateLongItem(){
-        Command setCommand = new Command(Operation.SET, "test", "2147483900", Instant.now().plusSeconds(10).toEpochMilli(), DataType.longType);
+        Command setCommand = new Command(Operation.SET, "test", "2147483900".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(10).toEpochMilli(), DataType.longType);
         this.TestCreateItems(setCommand);
 
-        setCommand = new Command(Operation.SET, "test", "-33147483900", Instant.now().plusSeconds(10).toEpochMilli(), DataType.longType);
+        setCommand = new Command(Operation.SET, "test", "-33147483900".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(10).toEpochMilli(), DataType.longType);
         this.TestCreateItems(setCommand);
     }
 
     @Test
     void TestCreateCharItem(){
-        Command setCommand = new Command(Operation.SET, "test", "A", Instant.now().plusSeconds(10).toEpochMilli(), DataType.characterType);
+        Command setCommand = new Command(Operation.SET, "test", "A".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(10).toEpochMilli(), DataType.characterType);
         this.TestCreateItems(setCommand);
     }
 
     @Test
     void TestCreateBooleanItem(){
-        Command setCommand = new Command(Operation.SET, "test", "false", Instant.now().plusSeconds(10).toEpochMilli(), DataType.boolType);
+        Command setCommand = new Command(Operation.SET, "test", "false".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(10).toEpochMilli(), DataType.boolType);
         this.TestCreateItems(setCommand);
 
-        setCommand = new Command(Operation.SET, "test", "true", Instant.now().plusSeconds(10).toEpochMilli(), DataType.boolType);
+        setCommand = new Command(Operation.SET, "test", "true".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(10).toEpochMilli(), DataType.boolType);
         this.TestCreateItems(setCommand);
     }
 
@@ -76,11 +80,11 @@ public class CommandTest {
 
     @Test
     void TestDeleteItem(){
-        Command setCommand = new Command(Operation.SET, "test", "testValue", Instant.now().plusSeconds(10).toEpochMilli(), DataType.stringType);
+        Command setCommand = new Command(Operation.SET, "test", "testValue".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(10).toEpochMilli(), DataType.stringType);
         CommandResponse response = cache.ProcessCommand(setCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
 
-        Command deleteCommand = new Command(Operation.DELE, "test");
+        Command deleteCommand = new Command(Operation.DELETE, "test");
         response = cache.ProcessCommand(deleteCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.DELETED);
 
@@ -91,14 +95,14 @@ public class CommandTest {
 
     @Test
     void TestDeleteOnNonExistantItem(){
-        Command deleteCommand = new Command(Operation.DELE, "test");
+        Command deleteCommand = new Command(Operation.DELETE, "test");
         var response = cache.ProcessCommand(deleteCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.DELETED);
     }
 
     @Test
     void TestExistsItem(){
-        Command setCommand = new Command(Operation.SET, "test", "testValue", Instant.now().plusSeconds(10).toEpochMilli(), DataType.stringType);
+        Command setCommand = new Command(Operation.SET, "test", "testValue".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(10).toEpochMilli(), DataType.stringType);
         CommandResponse response = cache.ProcessCommand(setCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
 
@@ -117,7 +121,7 @@ public class CommandTest {
 
     @Test
     void TestExpiredKeysAreDeleted(){
-        Command setCommand = new Command(Operation.SET, "test", "testValue", Instant.now().plusSeconds(4).toEpochMilli(), DataType.stringType);
+        Command setCommand = new Command(Operation.SET, "test", "testValue".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(4).toEpochMilli(), DataType.stringType);
         CommandResponse response = cache.ProcessCommand(setCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
 
@@ -142,7 +146,7 @@ public class CommandTest {
      */
     @Test
     void TestBackgroundThreadDeletesStaleEntries() throws InterruptedException {
-        Command setCommand = new Command(Operation.SET, "test", "testValue", Instant.now().plusSeconds(2).toEpochMilli(), DataType.stringType);
+        Command setCommand = new Command(Operation.SET, "test", "testValue".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(2).toEpochMilli(), DataType.stringType);
         CommandResponse response = cache.ProcessCommand(setCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
 
@@ -160,11 +164,11 @@ public class CommandTest {
 
     @Test
     void TestBackgroundThreadDoNotDeletesActiveEntries() throws InterruptedException {
-        Command setCommand = new Command(Operation.SET, "test1", "testValue", Instant.now().plusSeconds(2).toEpochMilli(), DataType.stringType);
+        Command setCommand = new Command(Operation.SET, "test1", "testValue".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(2).toEpochMilli(), DataType.stringType);
         CommandResponse response = cache.ProcessCommand(setCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
 
-        setCommand = new Command(Operation.SET, "test2", "testValue", Instant.now().plusSeconds(2).toEpochMilli(), DataType.stringType);
+        setCommand = new Command(Operation.SET, "test2", "testValue".getBytes(StandardCharsets.UTF_8), Instant.now().plusSeconds(2).toEpochMilli(), DataType.stringType);
         response = cache.ProcessCommand(setCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
 
@@ -183,7 +187,8 @@ public class CommandTest {
         CommandResponse response = cache.ProcessCommand(setCommand);
         assertEquals(response.getStatusCode(), OperationResponseCode.CREATED);
         assertEquals(response.getKey(), setCommand.getKey());
-        assertEquals(response.getValue(), setCommand.getValue());
+        assertArrayEquals(response.getValue(), setCommand.getValue());
         assertEquals(response.getTtl(), setCommand.getTtl());
+        assertEquals(response.getType(), setCommand.getType());
     }
 }
