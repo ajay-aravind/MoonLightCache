@@ -2,7 +2,9 @@ package in.ajay.core;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 
 public final class AppConfig {
 
@@ -72,8 +74,12 @@ public final class AppConfig {
         return Integer.parseInt(get(key));
     }
 
-    public static void list(){
+    public static void printConfig(){
         PROPERTIES.list(System.out);
+    }
+
+    public static Set<Map.Entry<String, String>> getEnv(){
+        return System.getenv().entrySet();
     }
 
     public static boolean getBoolean(String key) {

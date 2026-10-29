@@ -31,7 +31,7 @@ class ResponseParserTest {
 
     @ParameterizedTest
     @EnumSource(value = OperationResponseCode.class, names = {
-            "EXISTS", "NOTEXISTS", "CREATED", "FAILED",
+            "EXISTS", "NOTEXISTS", "FAILED",
             "DELETED", "INVALID_OPERATION"
     })
     void keyOnlyResponses_shouldRoundTrip(

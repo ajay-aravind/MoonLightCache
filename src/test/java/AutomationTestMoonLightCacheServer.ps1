@@ -418,10 +418,25 @@ function Invoke-CacheRequest {
         $Stream.ReadTimeout = 5000
         $Stream.WriteTimeout = 5000
 
-        $Stream.Write($Request, 0, $Request.Length)
-        $Stream.Flush()
+        # Wrap TCP in TLS. Certificate validation remains enabled.
+        $TlsStream = [System.Net.Security.SslStream]::new(
+                $Stream,
+                $false
+        )
 
-        [byte[]]$Prefix = Read-Exact $Stream 4
+        # Authenticate the server and validate its certificate/hostname.
+        $TlsStream.AuthenticateAsClient($HostName)
+
+        Write-Host "TLS connection established."
+        Write-Host "Protocol: $($TlsStream.SslProtocol)"
+        Write-Host "Cipher:   $($TlsStream.CipherAlgorithm)"
+        Write-Host "Strength: $($TlsStream.CipherStrength)"
+
+
+        $TlsStream.Write($Request, 0, $Request.Length)
+        $TlsStream.Flush()
+
+        [byte[]]$Prefix = Read-Exact $TlsStream 4
 
         [long]$Length =
         ([long]$Prefix[0] * 16777216) +
@@ -433,7 +448,7 @@ function Invoke-CacheRequest {
             throw "Invalid response frame length: $Length"
         }
 
-        [byte[]]$Payload = Read-Exact $Stream ([int]$Length)
+        [byte[]]$Payload = Read-Exact $TlsStream ([int]$Length)
 
         return (Decode-Response $Payload)
     }
@@ -524,10 +539,24 @@ function Test-InvalidFrameRejected {
             $Stream = $Client.GetStream()
             $Stream.ReadTimeout = 2000
 
-            $Stream.Write($Frame, 0, $Frame.Length)
-            $Stream.Flush()
+            # Wrap TCP in TLS. Certificate validation remains enabled.
+            $TlsStream = [System.Net.Security.SslStream]::new(
+                    $Stream,
+                    $false
+            )
 
-            $FirstByte = $Stream.ReadByte()
+            # Authenticate the server and validate its certificate/hostname.
+            $TlsStream.AuthenticateAsClient($HostName)
+
+            Write-Host "TLS connection established."
+            Write-Host "Protocol: $($TlsStream.SslProtocol)"
+            Write-Host "Cipher:   $($TlsStream.CipherAlgorithm)"
+            Write-Host "Strength: $($TlsStream.CipherStrength)"
+
+            $TlsStream.Write($Frame, 0, $Frame.Length)
+            $TlsStream.Flush()
+
+            $FirstByte = $TlsStream.ReadByte()
 
             if ($FirstByte -ne -1) {
                 throw "Expected server to close connection; received a response byte."

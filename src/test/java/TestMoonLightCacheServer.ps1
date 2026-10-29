@@ -346,6 +346,20 @@ try {
     $Stream.ReadTimeout = 5000
     $Stream.WriteTimeout = 5000
 
+    # Wrap TCP in TLS. Certificate validation remains enabled.
+    $TlsStream = [System.Net.Security.SslStream]::new(
+            $Stream,
+            $false
+    )
+
+    # Authenticate the server and validate its certificate/hostname.
+    $TlsStream.AuthenticateAsClient($HostName)
+
+    Write-Host "TLS connection established."
+    Write-Host "Protocol: $($TlsStream.SslProtocol)"
+    Write-Host "Cipher:   $($TlsStream.CipherAlgorithm)"
+    Write-Host "Strength: $($TlsStream.CipherStrength)"
+
     Write-Host "`nRequest"
     Write-Host "  Operation: $Operation ($OperationCode)"
     Write-Host "  Key:       $Key"
@@ -359,11 +373,11 @@ try {
 
     Write-Host "  Frame hex: $Request"
 
-    $Stream.Write($Request, 0, $Request.Length)
-    $Stream.Flush()
+    $TlsStream.Write($Request, 0, $Request.Length)
+    $TlsStream.Flush()
 
     # Read response frame length.
-    [byte[]]$Prefix = Read-Exact $Stream 4
+    [byte[]]$Prefix = Read-Exact $TlsStream 4
 
     [long]$ResponseLength =
     ([long]$Prefix[0] * 16777216) +
@@ -375,7 +389,7 @@ try {
         throw "Invalid response frame length: $ResponseLength"
     }
 
-    [byte[]]$ResponsePayload = Read-Exact $Stream ([int]$ResponseLength)
+    [byte[]]$ResponsePayload = Read-Exact $TlsStream ([int]$ResponseLength)
     [byte[]]$ResponseFrame = $Prefix + $ResponsePayload
 
     Write-Host "`nResponse"

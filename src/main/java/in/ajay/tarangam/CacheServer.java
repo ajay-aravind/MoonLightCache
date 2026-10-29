@@ -5,11 +5,16 @@ import in.ajay.core.*;
 import in.ajay.logging.ILogger;
 import in.ajay.logging.SysOutLogger;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLServerSocket;
+import javax.net.ssl.SSLSocket;
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.security.GeneralSecurityException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -26,32 +31,38 @@ public final class CacheServer implements AutoCloseable {
     private volatile boolean running;
     private ServerSocket serverSocket;
 
-    public void start() throws IOException {
+    public void start() throws IOException, GeneralSecurityException {
+
+        AppConfig.printConfig();
+        AppConfig.getEnv().forEach(entry ->
+                logger.LogDebug(entry.getKey() + "=" + entry.getValue()));
+
         if (running) {
             throw new IllegalStateException("Server is already running");
         }
 
-        InetAddress address = InetAddress.getByName(HOST);
+        SSLContext sslContext = TlsContext.createServerContext();
 
-        serverSocket = new ServerSocket(
-                PORT, 50, address);
+        SSLServerSocket serverSocket =
+                (SSLServerSocket) sslContext.getServerSocketFactory()
+                        .createServerSocket(
+                                40001,
+                                50,
+                                InetAddress.getByName("127.0.0.1"));
 
+        serverSocket.setEnabledProtocols(
+                new String[]{"TLSv1.3", "TLSv1.2"});
+
+        logger.LogInfo("TLS cache server listening on 127.0.0.1:40001");
         running = true;
-
-        System.out.printf(
-                "Cache server listening on %s:%d%n",
-                serverSocket.getInetAddress().getHostAddress(),
-                serverSocket.getLocalPort());
-
         logger.LogInfo("Starting moonlight cache");
+
         cache = new MoonLightCache();
-        AppConfig.list();
 
         try {
             while (running) {
                 try {
-                    Socket client = serverSocket.accept();
-
+                    SSLSocket client = (SSLSocket) serverSocket.accept();
                     System.out.printf(
                             "Client connected: %s%n",
                             client.getRemoteSocketAddress());
@@ -71,31 +82,34 @@ public final class CacheServer implements AutoCloseable {
         }
     }
 
-    private void handleClient(Socket client) {
-        try (client) {
-            client.setSoTimeout(30_000);
+    private void handleClient(SSLSocket client) {
+            try (client) {
+                client.setSoTimeout(30_000);
 
-            System.out.printf(
-                    "Handling client %s%n",
-                    client.getRemoteSocketAddress());
+                logger.LogInfo("Starting handshake with client:" + client.getRemoteSocketAddress());
+                client.startHandshake();
+                logger.LogInfo("handshake completed with client:" + client.getRemoteSocketAddress());
 
-            // Read requests here using RequestParser.read(client.getInputStream()).
-
-            Command command = RequestParser.read(client.getInputStream());
-            logger.LogDebug(command.toString());
-            CommandResponse response = cache.ProcessCommand(command);
-            logger.LogDebug(response.toString());
-            ResponseParser.write(client.getOutputStream(), response);
-
-        } catch (IOException e) {
-            System.err.printf(
-                    "Client connection error (%s): %s%n",
-                    client.getRemoteSocketAddress(),
-                    e.getMessage());
-        }
-        catch(Exception e){
-            logger.LogDebug("Exception while handling client request:"+e.getMessage());
-        }
+                logger.LogInfo("Handling client:" + client.getRemoteSocketAddress());
+                while(!client.isClosed()) {
+                    try {
+                        Command command = RequestParser.read(client.getInputStream());
+                        logger.LogDebug(command.toString());
+                        CommandResponse response = cache.ProcessCommand(command);
+                        logger.LogDebug(response.toString());
+                        ResponseParser.write(client.getOutputStream(), response);
+                    }
+                    catch(EOFException e)
+                    {
+                        logger.LogDebug("client close the connection:" + e.getMessage());
+                        break;
+                    }
+                }
+            } catch (IOException e) {
+                logger.LogDebug("Client connection error "+client.getRemoteSocketAddress() + e.getMessage());
+            } catch (Exception e) {
+                logger.LogDebug("Exception while handling client request:" + e.getMessage());
+            }
     }
 
     @Override
@@ -113,7 +127,8 @@ public final class CacheServer implements AutoCloseable {
         clientExecutor.close();
     }
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, GeneralSecurityException {
+
         try (CacheServer server = new CacheServer()) {
             server.start();
         }

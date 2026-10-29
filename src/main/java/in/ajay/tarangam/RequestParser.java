@@ -177,23 +177,48 @@ public class RequestParser {
     }
 
     /**
-     * Reads one frame from a TCP stream without assuming that a single
-     * read() call returns all requested bytes.
+     * Reads one complete command frame from the input stream.
+     *
+     * @return decoded Command, or null if the peer closed the
+     *         connection cleanly at a frame boundary.
+     *
+     * @throws EOFException if the peer closes mid-frame.
+     * @throws IOException for malformed frames or I/O errors.
      */
     public static Command read(InputStream input) throws IOException {
         Objects.requireNonNull(input, "input");
 
-        byte[] prefix = readExactly(input, LENGTH_PREFIX_BYTES);
+        // Read the first byte separately to detect clean EOF.
+        int firstByte = input.read();
+
+        if (firstByte == -1) {
+            // No bytes of the next frame were received.
+            // The connection ended at a frame boundary.
+            return null;
+        }
+
+        // First byte received: the frame has started.
+        byte[] prefix = new byte[LENGTH_PREFIX_BYTES];
+        prefix[0] = (byte) firstByte;
+
+        // Read the remaining 3 bytes of the length prefix.
+        readExactly(input, prefix, 1, LENGTH_PREFIX_BYTES - 1);
+
         long payloadLength = Integer.toUnsignedLong(
                 ByteBuffer.wrap(prefix)
                         .order(ByteOrder.BIG_ENDIAN)
-                        .getInt());
+                        .getInt()
+        );
 
         if (payloadLength > MAX_FRAME_BYTES) {
-            throw new IOException("Frame exceeds maximum allowed size");
+            throw new IOException(
+                    "Frame exceeds maximum allowed size: " + payloadLength);
         }
 
-        byte[] payload = readExactly(input, (int) payloadLength);
+        // Once the length prefix is read, the payload must be complete.
+        byte[] payload = new byte[(int) payloadLength];
+        readExactly(input, payload, 0, payload.length);
+
         byte[] frame = new byte[LENGTH_PREFIX_BYTES + payload.length];
 
         System.arraycopy(prefix, 0, frame, 0, prefix.length);
@@ -209,30 +234,46 @@ public class RequestParser {
         output.flush();
     }
 
-    private static byte[] readExactly(
-            InputStream input, int length) throws IOException {
+    /**
+     * Reads exactly 'length' bytes into the destination buffer.
+     * Throws EOFException if the connection closes before completion.
+     */
+    private static void readExactly(
+            InputStream input,
+            byte[] destination,
+            int offset,
+            int length) throws IOException {
 
-        byte[] result = new byte[length];
-        int offset = 0;
+        int bytesRead = 0;
 
-        while (offset < length) {
-            int count = input.read(result, offset, length - offset);
+        while (bytesRead < length) {
+            int count = input.read(
+                    destination,
+                    offset + bytesRead,
+                    length - bytesRead
+            );
 
             if (count == -1) {
-                throw new EOFException("Connection closed mid-frame");
+                throw new EOFException(
+                        "Connection closed mid-frame. Expected "
+                                + length + " bytes, received " + bytesRead);
             }
 
             if (count == 0) {
+                // Defensive fallback for unusual InputStream implementations.
                 int singleByte = input.read();
+
                 if (singleByte == -1) {
-                    throw new EOFException("Connection closed mid-frame");
+                    throw new EOFException(
+                            "Connection closed mid-frame. Expected "
+                                    + length + " bytes, received " + bytesRead);
                 }
-                result[offset++] = (byte) singleByte;
+
+                destination[offset + bytesRead] = (byte) singleByte;
+                bytesRead++;
             } else {
-                offset += count;
+                bytesRead += count;
             }
         }
-
-        return result;
     }
 }
