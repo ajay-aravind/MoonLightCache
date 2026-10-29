@@ -94,10 +94,14 @@ public final class CacheServer implements AutoCloseable {
                 while(!client.isClosed()) {
                     try {
                         Command command = RequestParser.read(client.getInputStream());
-                        logger.LogDebug(command.toString());
-                        CommandResponse response = cache.ProcessCommand(command);
-                        logger.LogDebug(response.toString());
-                        ResponseParser.write(client.getOutputStream(), response);
+                        if(command != null) {
+                            logger.LogDebug(command.toString());
+                            CommandResponse response = cache.ProcessCommand(command);
+                            logger.LogDebug(response.toString());
+                            ResponseParser.write(client.getOutputStream(), response);
+                        }else{
+                            break;
+                        }
                     }
                     catch(EOFException e)
                     {

@@ -54,8 +54,6 @@ public class MoonLightCache {
     }
 
     public CommandResponse ProcessCommand(Command command) {
-
-        //todo: validate command
         CommandResponse response= new CommandResponse();
 
         synchronized (this.getMutexKey(command.getKey())) {
