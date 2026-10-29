@@ -26,7 +26,7 @@ public class SysOutLogger implements ILogger{
     @Override
     public void LogTrace(String message) {
         if(LOG_LEVEL.equals("trace")) {
-            IO.println(message);
+            IO.println(this.formatMessage(message));
         }
     }
 
