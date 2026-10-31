@@ -1,4 +1,3 @@
-
 param(
     [Parameter(Mandatory = $true, Position = 0)]
     [ValidateSet("GET", "SET", "EXISTS", "DELETE")]
@@ -20,6 +19,34 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Authentication credentials are supplied through environment variables.
+# Set these in PowerShell before running this script:
+#   $env:CACHE_ADMIN_USERNAME = "admin"
+#   $env:CACHE_ADMIN_PASSWORD = "your-password"
+$AuthUserName = $env:ADMIN_USERNAME
+$AuthPassword = $env:ADMIN_PASSWORD
+
+if ([string]::IsNullOrWhiteSpace($AuthUserName)) {
+    throw "CACHE_ADMIN_USERNAME environment variable is not set."
+}
+
+if ([string]::IsNullOrEmpty($AuthPassword)) {
+    throw "CACHE_ADMIN_PASSWORD environment variable is not set."
+}
+
+$Utf8 = [System.Text.Encoding]::UTF8
+
+[byte[]]$AuthUserNameBytes = $Utf8.GetBytes($AuthUserName)
+[byte[]]$AuthPasswordBytes = $Utf8.GetBytes($AuthPassword)
+
+if ($AuthUserNameBytes.Length -eq 0 -or $AuthUserNameBytes.Length -gt 1024) {
+    throw "Authentication username must contain between 1 and 1024 UTF-8 bytes."
+}
+
+if ($AuthPasswordBytes.Length -eq 0 -or $AuthPasswordBytes.Length -gt 4096) {
+    throw "Authentication password must contain between 1 and 4096 UTF-8 bytes."
+}
 
 $HostName = "127.0.0.1"
 $Port = 40001
@@ -360,6 +387,74 @@ try {
     Write-Host "Cipher:   $($TlsStream.CipherAlgorithm)"
     Write-Host "Strength: $($TlsStream.CipherStrength)"
 
+    # ------------------------------------------------------------
+    # Authenticate this connection before sending cache commands.
+    #
+    # Authentication request payload:
+    #   username length (2 bytes, unsigned big-endian)
+    #   username (UTF-8)
+    #   password length (2 bytes, unsigned big-endian)
+    #   password (UTF-8)
+    #
+    # Authentication response payload:
+    #   status (1 byte): 1 = SUCCESSFUL, 2 = UNSUCCESSFUL
+    # ------------------------------------------------------------
+
+    $AuthPayload = [System.Collections.Generic.List[byte]]::new()
+    $AuthPayload.AddRange((Get-UInt16BE $AuthUserNameBytes.Length))
+    $AuthPayload.AddRange($AuthUserNameBytes)
+    $AuthPayload.AddRange((Get-UInt16BE $AuthPasswordBytes.Length))
+    $AuthPayload.AddRange($AuthPasswordBytes)
+
+    [byte[]]$AuthPayloadBytes = $AuthPayload.ToArray()
+
+    if ($AuthPayloadBytes.Length -gt (2 + 1024 + 2 + 4096)) {
+        throw "Authentication request exceeds the maximum frame size."
+    }
+
+    $AuthFrame = [System.Collections.Generic.List[byte]]::new()
+    $AuthFrame.AddRange((Get-UInt32BE $AuthPayloadBytes.Length))
+    $AuthFrame.AddRange($AuthPayloadBytes)
+
+    [byte[]]$AuthRequest = $AuthFrame.ToArray()
+
+    Write-Host "`nAuthenticating..."
+    $TlsStream.Write($AuthRequest, 0, $AuthRequest.Length)
+    $TlsStream.Flush()
+
+    # Read and validate the authentication response frame.
+    [byte[]]$AuthResponsePrefix = Read-Exact $TlsStream 4
+
+    [long]$AuthResponseLength =
+    ([long]$AuthResponsePrefix[0] * 16777216) +
+            ([long]$AuthResponsePrefix[1] * 65536) +
+            ([long]$AuthResponsePrefix[2] * 256) +
+            [long]$AuthResponsePrefix[3]
+
+    if ($AuthResponseLength -ne 1) {
+        throw "Invalid authentication response frame length: $AuthResponseLength"
+    }
+
+    [byte[]]$AuthResponsePayload = Read-Exact $TlsStream 1
+    $AuthStatus = [int]$AuthResponsePayload[0]
+
+    switch ($AuthStatus) {
+        1 {
+            Write-Host "Authentication successful." -ForegroundColor Green
+        }
+        2 {
+            throw "Authentication failed. Check CACHE_ADMIN_USERNAME and CACHE_ADMIN_PASSWORD."
+        }
+        default {
+            throw "Unknown authentication response code: $AuthStatus"
+        }
+    }
+
+    # Do not retain the password bytes longer than necessary.
+    [Array]::Clear($AuthPasswordBytes, 0, $AuthPasswordBytes.Length)
+    [Array]::Clear($AuthRequest, 0, $AuthRequest.Length)
+    [Array]::Clear($AuthPayloadBytes, 0, $AuthPayloadBytes.Length)
+
     Write-Host "`nRequest"
     Write-Host "  Operation: $Operation ($OperationCode)"
     Write-Host "  Key:       $Key"
@@ -473,5 +568,21 @@ catch {
     Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
 }
 finally {
+    if ($null -ne $AuthPasswordBytes -and $AuthPasswordBytes.Length -gt 0) {
+        [Array]::Clear($AuthPasswordBytes, 0, $AuthPasswordBytes.Length)
+    }
+
+    if ($null -ne $AuthRequest -and $AuthRequest.Length -gt 0) {
+        [Array]::Clear($AuthRequest, 0, $AuthRequest.Length)
+    }
+
+    if ($null -ne $AuthPayloadBytes -and $AuthPayloadBytes.Length -gt 0) {
+        [Array]::Clear($AuthPayloadBytes, 0, $AuthPayloadBytes.Length)
+    }
+
+    if ($null -ne $TlsStream) {
+        $TlsStream.Dispose()
+    }
+
     $Client.Dispose()
 }

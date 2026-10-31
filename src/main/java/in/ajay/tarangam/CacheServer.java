@@ -67,7 +67,7 @@ public final class CacheServer implements AutoCloseable {
                             "Client connected: %s%n",
                             client.getRemoteSocketAddress());
 
-                    clientExecutor.submit(() -> handleClient(client));
+                    clientExecutor.submit(() -> handleClient(client, cache));
 
                 } catch (SocketException e) {
                     if (running) {
@@ -82,39 +82,11 @@ public final class CacheServer implements AutoCloseable {
         }
     }
 
-    private void handleClient(SSLSocket client) {
-            try (client) {
-                client.setSoTimeout(30_000);
-
-                logger.LogInfo("Starting handshake with client:" + client.getRemoteSocketAddress());
-                client.startHandshake();
-                logger.LogInfo("handshake completed with client:" + client.getRemoteSocketAddress());
-
-                logger.LogInfo("Handling client:" + client.getRemoteSocketAddress());
-                while(!client.isClosed()) {
-                    try {
-                        Command command = RequestParser.read(client.getInputStream());
-                        if(command != null) {
-                            logger.LogDebug(command.toString());
-                            CommandResponse response = cache.ProcessCommand(command);
-                            logger.LogDebug(response.toString());
-                            ResponseParser.write(client.getOutputStream(), response);
-                        }else{
-                            break;
-                        }
-                    }
-                    catch(EOFException e)
-                    {
-                        logger.LogDebug("client close the connection:" + e.getMessage());
-                        break;
-                    }
-                }
-            } catch (IOException e) {
-                logger.LogDebug("Client connection error "+client.getRemoteSocketAddress() + e.getMessage());
-            } catch (Exception e) {
-                logger.LogDebug("Exception while handling client request:" + e.getMessage());
-            }
+    private void handleClient(SSLSocket client, MoonLightCache cache) {
+        ConnectionHandler handler = new ConnectionHandler(client, logger, cache);
+        handler.handleClient();
     }
+
 
     @Override
     public void close() throws IOException {
